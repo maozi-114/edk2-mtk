@@ -87,8 +87,9 @@ PrePiMain(
   InvalidateDataCacheRange(
       (VOID *)(UINTN)PcdGet64(PcdFdBaseAddress), PcdGet32(PcdFdSize));
 
-  // Initialize MMU
+  SerialPortWrite ((UINT8 *) "[ROO:M1]", 8);
   Status = MemoryPeim(UefiMemoryBase, UefiMemorySize);
+  SerialPortWrite ((UINT8 *) "[ROO:M2]", 8);
   ASSERT_EFI_ERROR (Status);
 
   // Add HOBs
@@ -102,7 +103,9 @@ PrePiMain(
 
   // Initialize Platform HOBs (CpuHob and FvHob)
   DEBUG((EFI_D_INFO, "PlatformPeim In \n"));
+  SerialPortWrite ((UINT8 *) "[ROO:P1]", 8);
   Status = PlatformPeim();
+  SerialPortWrite ((UINT8 *) "[ROO:P2]", 8);
   ASSERT_EFI_ERROR (Status);
 
   // Now, the HOB List has been initialized, we can register performance information
@@ -113,12 +116,16 @@ PrePiMain(
 
   // Assume the FV that contains the SEC (our code) also contains a compressed FV.
   DEBUG((EFI_D_INFO, "DecompressFirstFv In \n"));
+  SerialPortWrite ((UINT8 *) "[ROO:D1]", 8);
   Status = DecompressFirstFv();
+  SerialPortWrite ((UINT8 *) "[ROO:D2]", 8);
   ASSERT_EFI_ERROR (Status);
 
   // Load the DXE Core and transfer control to it
   DEBUG((EFI_D_INFO, "LoadDxeCoreFromFv In \n"));
+  SerialPortWrite ((UINT8 *) "[ROO:L1]", 8);
   Status = LoadDxeCoreFromFv(NULL, 0);
+  SerialPortWrite ((UINT8 *) "[ROO:L2]", 8);
   ASSERT_EFI_ERROR (Status);
 }
 
@@ -139,11 +146,14 @@ CEntryPoint(
   )
 {
   SerialPortInit ();
-  
+  SerialPortWrite ((UINT8 *) "[ROO] PREPI: CEntryPoint\r\n", sizeof ("[ROO] PREPI: CEntryPoint\r\n") - 1);
+
   // Do platform specific initialization here
   PlatformInitialize();
+  SerialPortWrite ((UINT8 *) "[ROO] PREPI: PlatformInitialize done\r\n", sizeof ("[ROO] PREPI: PlatformInitialize done\r\n") - 1);
 
   // Goto primary Main.
+  SerialPortWrite ((UINT8 *) "[ROO] PREPI: entering PrePiMain\r\n", sizeof ("[ROO] PREPI: entering PrePiMain\r\n") - 1);
   PrePiMain(StackBase, StackSize);
 
   // DXE Core should always load and never return

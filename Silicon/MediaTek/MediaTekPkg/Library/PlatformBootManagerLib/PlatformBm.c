@@ -499,23 +499,32 @@ VOID EFIAPI PlatformBootManagerBeforeConsole(VOID)
   EfiBootManagerUpdateConsoleVariable(
       ConIn, (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard, NULL);
 
-  EFI_HANDLE *              handles;
-  UINTN                     NoHandles;
-  EFI_DEVICE_PATH_PROTOCOL *devicehandle;
-  /*CHAR16 *devicepathtxt;*/
-  // EfiBootManagerUpdateConsoleVariable(ConIn,
-  //  (EFI_DEVICE_PATH_PROTOCOL*)&gQcomKeypadDeviceGuid, NULL);
-  gBS->LocateHandleBuffer(
-      ByProtocol, &gEfiSimpleTextInputExProtocolGuid, NULL, &NoHandles,
-      &handles);
-  devicehandle = DevicePathFromHandle(handles[1]);
-  EfiBootManagerUpdateConsoleVariable(
-      ConIn, devicehandle, NULL); /*
-            devicepathtxt = ConvertDevicePathToText(devicehandle,TRUE,TRUE);
-            DEBUG((DEBUG_ERROR,"There are %s handles\n",devicepathtxt));
-            ASSERT(0);*/
+  EFI_HANDLE                *Handles;
+  UINTN                     HandleCount;
+  UINTN                     HandleIndex;
+  EFI_DEVICE_PATH_PROTOCOL  *DevicePath;
+  EFI_STATUS                Status;
 
-  //
+  Handles     = NULL;
+  HandleCount = 0;
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleTextInputExProtocolGuid,
+                  NULL,
+                  &HandleCount,
+                  &Handles
+                  );
+  if (!EFI_ERROR (Status)) {
+    for (HandleIndex = 0; HandleIndex < HandleCount; HandleIndex++) {
+      DevicePath = DevicePathFromHandle (Handles[HandleIndex]);
+      if (DevicePath != NULL) {
+        EfiBootManagerUpdateConsoleVariable (ConIn, DevicePath, NULL);
+      }
+    }
+
+    FreePool (Handles);
+  }
+
   // Add the hardcoded serial console device path to ConIn, ConOut, ErrOut.
   //
   ASSERT(FixedPcdGet8(PcdDefaultTerminalType) == 4);

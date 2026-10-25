@@ -57,7 +57,11 @@ VOID AddHob(PARM_MEMORY_REGION_DESCRIPTOR_EX Desc)
   BuildResourceDescriptorHob(
       Desc->ResourceType, Desc->ResourceAttribute, Desc->Address, Desc->Length);
 
-  if (Desc->ResourceType == EFI_RESOURCE_SYSTEM_MEMORY ||
+  // Resource HOBs describe all system RAM to DXE. Do not also create an
+  // allocation HOB for free conventional memory: DXE consumes allocation
+  // HOBs first, so doing so marks every usable RAM range as already owned.
+  if ((Desc->ResourceType == EFI_RESOURCE_SYSTEM_MEMORY &&
+       Desc->MemoryType != EfiConventionalMemory) ||
       Desc->MemoryType == EfiRuntimeServicesData)
   {
     BuildMemoryAllocationHob(Desc->Address, Desc->Length, Desc->MemoryType);

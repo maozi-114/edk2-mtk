@@ -11,3 +11,7 @@ Conf
 *.fd
 *.pyc
 *__pycache__*
+
+.venv/
+*.before-*
+*.prepi-uart-backup

@@ -11,13 +11,23 @@
   DEVICE_DXE_FV_COMPONENTS       = rooPkg/roo.fdf.inc
 
 [PcdsFixedAtBuild.common]
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate|921600
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack|FALSE
+
+!if $(TARGET) == DEBUG
+  # Full standard DEBUG() stream on BaseDebugLibSerialPort/UART0.
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x2F
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x807B55FF
+  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x807B55FF
+!endif
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x40000000
   gArmTokenSpaceGuid.PcdSystemMemorySize|0xc0000000
   gArmTokenSpaceGuid.PcdCpuVectorBaseAddress|0x40C40000
   gEmbeddedTokenSpaceGuid.PcdPrePiStackBase|0x40C00000
   gEmbeddedTokenSpaceGuid.PcdPrePiStackSize|0x00040000
   gMediaTekTokenSpaceGuid.PcdUefiMemPoolBase|0x40C50000
-  gMediaTekTokenSpaceGuid.PcdUefiMemPoolSize|0x07130000
+  # Must end at 0x47C80000; the following 1 MiB is AEE/pstore/minidump.
+  gMediaTekTokenSpaceGuid.PcdUefiMemPoolSize|0x07030000
 
   # Simple Framebuffer
   gMediaTekTokenSpaceGuid.PcdMipiFrameBufferWidth|736
@@ -28,3 +38,9 @@
   PlatformMemoryMapLib|rooPkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.inf
 
 !include Silicon/MediaTek/MT6765Pkg/MT6765.dsc
+
+# Keep RELEASE image placement while enabling the complete serial DEBUG() stream.
+[PcdsFixedAtBuild.common]
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x2F
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x807B55FF
+  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x807B55FF

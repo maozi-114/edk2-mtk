@@ -54,7 +54,7 @@
   gArmPlatformTokenSpaceGuid.PcdCPUCoresStackBase|0x9FF90000
   gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize|0x20000
 
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor|L"EDK II for MediaTek Project"
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor|L"EDK2 for MediaTek Project"
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"$(FIRMWARE_VER)"
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemId|"MTK  "
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemTableId|0x324B44454D4F4351

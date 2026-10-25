@@ -1,33 +1,198 @@
 /** @file
-  Null Serial Port library instance with empty functions.
+  MediaTek MT676x UART SerialPortLib implementation.
 
-  Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
-  This program and the accompanying materials
-  are licensed and made available under the terms and conditions of the BSD License
-  which accompanies this distribution.  The full text of the license may be found at
-  http://opensource.org/licenses/bsd-license.php.
-
-  THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
-  WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
-
+  The register layout and baud-rate algorithm follow the MT6762/MT6739
+  Linux UART driver.  This platform uses UART0 at 0x11002000 with a
+  26 MHz source clock.
 **/
-
 
 #include <Base.h>
 #include <Library/SerialPortLib.h>
-#include <Library/CacheMaintenanceLib.h>
+#include <Library/PcdLib.h>
+#include <Protocol/SerialIo.h>
 
-/**
-  Initialize the serial device hardware.
+#define MTK_UART_BASE          0x11002000U
+#define MTK_UART_CLOCK         26000000U
 
-  If no initialization is required, then return RETURN_SUCCESS.
-  If the serial device was successfully initialized, then return RETURN_SUCCESS.
-  If the serial device could not be initialized, then return RETURN_DEVICE_ERROR.
+#define UART_RBR_THR           0x00
+#define UART_IER_DLH           0x04
+#define UART_FCR               0x08
+#define UART_LCR               0x0C
+#define UART_MCR               0x10
+#define UART_LSR               0x14
+#define UART_MSR               0x18
+#define UART_HIGHSPEED         0x24
+#define UART_SAMPLE_COUNT      0x28
+#define UART_SAMPLE_POINT      0x2C
+#define UART_RATE_FIX_AD       0x34
+#define UART_GUARD             0x3C
 
-  @retval RETURN_SUCCESS        The serial device was initialized.
-  @retval RETURN_DEVICE_ERROR   The serial device could not be initialized.
+#define UART_LCR_WLS_8         0x03
+#define UART_LCR_STOP_2        0x04
+#define UART_LCR_PARITY_EN     0x08
+#define UART_LCR_EVEN_PARITY   0x10
+#define UART_LCR_STICK_PARITY  0x20
+#define UART_LCR_DLAB          0x80
 
-**/
+#define UART_FCR_ENABLE        0x01
+#define UART_FCR_CLEAR_RX      0x02
+#define UART_FCR_CLEAR_TX      0x04
+#define UART_FCR_NORMAL        (UART_FCR_ENABLE | UART_FCR_CLEAR_RX | UART_FCR_CLEAR_TX | (1U << 4) | (2U << 6))
+
+#define UART_LSR_DR            0x01
+#define UART_LSR_THRE          0x20
+#define UART_LSR_TEMT          0x40
+
+#define UART_MCR_DTR           0x01
+#define UART_MCR_RTS           0x02
+#define UART_MSR_CTS           0x10
+#define UART_MSR_DSR           0x20
+#define UART_MSR_RI            0x40
+#define UART_MSR_DCD           0x80
+
+STATIC
+UINT32
+UartRead (
+  IN UINTN  Offset
+  )
+{
+  return *(volatile UINT32 *)(UINTN)(MTK_UART_BASE + Offset);
+}
+
+STATIC
+VOID
+UartWrite (
+  IN UINTN   Offset,
+  IN UINT32  Value
+  )
+{
+  *(volatile UINT32 *)(UINTN)(MTK_UART_BASE + Offset) = Value;
+}
+
+STATIC
+UINT32
+UartLineControl (
+  IN UINT8              DataBits,
+  IN EFI_PARITY_TYPE    Parity,
+  IN EFI_STOP_BITS_TYPE StopBits
+  )
+{
+  UINT32  Lcr;
+
+  switch (DataBits) {
+    case 5: Lcr = 0; break;
+    case 6: Lcr = 1; break;
+    case 7: Lcr = 2; break;
+    case 8: Lcr = UART_LCR_WLS_8; break;
+    default: return MAX_UINT32;
+  }
+
+  if (StopBits == TwoStopBits || ((StopBits == OneFiveStopBits) && (DataBits == 5))) {
+    Lcr |= UART_LCR_STOP_2;
+  } else if (StopBits != OneStopBit && StopBits != DefaultStopBits) {
+    return MAX_UINT32;
+  }
+
+  switch (Parity) {
+    case DefaultParity:
+    case NoParity:
+      break;
+    case OddParity:
+      Lcr |= UART_LCR_PARITY_EN;
+      break;
+    case EvenParity:
+      Lcr |= UART_LCR_PARITY_EN | UART_LCR_EVEN_PARITY;
+      break;
+    case MarkParity:
+      Lcr |= UART_LCR_PARITY_EN | UART_LCR_STICK_PARITY;
+      break;
+    case SpaceParity:
+      Lcr |= UART_LCR_PARITY_EN | UART_LCR_EVEN_PARITY | UART_LCR_STICK_PARITY;
+      break;
+    default:
+      return MAX_UINT32;
+  }
+
+  return Lcr;
+}
+
+STATIC
+RETURN_STATUS
+UartConfigure (
+  IN UINT64             BaudRate,
+  IN UINT8              DataBits,
+  IN EFI_PARITY_TYPE    Parity,
+  IN EFI_STOP_BITS_TYPE StopBits
+  )
+{
+  UINT32  Lcr;
+  UINT32  Divisor;
+  UINT32  Remainder;
+  UINT32  HighSpeed;
+  UINT32  HighDiv;
+  UINT32  SampleCount;
+  UINT32  SamplePoint;
+
+  if ((BaudRate == 0) || (BaudRate > (MTK_UART_CLOCK / 4))) {
+    return RETURN_UNSUPPORTED;
+  }
+
+  Lcr = UartLineControl (DataBits, Parity, StopBits);
+  if (Lcr == MAX_UINT32) {
+    return RETURN_UNSUPPORTED;
+  }
+
+  UartWrite (UART_RATE_FIX_AD, 0);
+  UartWrite (UART_LCR, Lcr);
+  UartWrite (UART_FCR, UART_FCR_NORMAL);
+
+  if (BaudRate <= 115200) {
+    HighSpeed = 0;
+    Divisor  = (MTK_UART_CLOCK >> 4) / (UINT32)BaudRate;
+    Remainder = (MTK_UART_CLOCK >> 4) % (UINT32)BaudRate;
+    if (Remainder >= ((UINT32)BaudRate / 2)) {
+      Divisor++;
+    }
+    UartWrite (UART_HIGHSPEED, HighSpeed);
+    UartWrite (UART_LCR, Lcr | UART_LCR_DLAB);
+    UartWrite (UART_RBR_THR, Divisor & 0xFF);
+    UartWrite (UART_IER_DLH, (Divisor >> 8) & 0xFF);
+    UartWrite (UART_LCR, Lcr);
+  } else if (BaudRate <= 460800) {
+    HighSpeed = 2;
+    Divisor  = (MTK_UART_CLOCK >> 2) / (UINT32)BaudRate;
+    Remainder = (MTK_UART_CLOCK >> 2) % (UINT32)BaudRate;
+    if (Remainder >= ((UINT32)BaudRate / 2)) {
+      Divisor++;
+    }
+    UartWrite (UART_HIGHSPEED, HighSpeed);
+    UartWrite (UART_LCR, Lcr | UART_LCR_DLAB);
+    UartWrite (UART_RBR_THR, Divisor & 0xFF);
+    UartWrite (UART_IER_DLH, (Divisor >> 8) & 0xFF);
+    UartWrite (UART_LCR, Lcr);
+  } else {
+    HighSpeed = 3;
+    HighDiv   = ((MTK_UART_CLOCK / (UINT32)BaudRate) >> 8) + 1;
+    Divisor   = MTK_UART_CLOCK / ((UINT32)BaudRate * HighDiv);
+    if (Divisor == 0) {
+      return RETURN_UNSUPPORTED;
+    }
+    SampleCount = Divisor - 1;
+    SamplePoint = (SampleCount == 0) ? 0 : ((SampleCount - 1) >> 1);
+    UartWrite (UART_HIGHSPEED, HighSpeed);
+    UartWrite (UART_LCR, Lcr | UART_LCR_DLAB);
+    UartWrite (UART_RBR_THR, HighDiv & 0xFF);
+    UartWrite (UART_IER_DLH, (HighDiv >> 8) & 0xFF);
+    UartWrite (UART_LCR, Lcr);
+    UartWrite (UART_SAMPLE_COUNT, SampleCount);
+    UartWrite (UART_SAMPLE_POINT, SamplePoint);
+    if (BaudRate >= 3000000) {
+      UartWrite (UART_GUARD, 0x12);
+    }
+  }
+
+  return RETURN_SUCCESS;
+}
 
 RETURN_STATUS
 EFIAPI
@@ -35,166 +200,121 @@ SerialPortInitialize (
   VOID
   )
 {
-  return RETURN_SUCCESS;
+  return UartConfigure (FixedPcdGet64 (PcdUartDefaultBaudRate), 8, NoParity, OneStopBit);
 }
 
-static void uart_putc(char c) {
-  if (c == '\n')
-  	uart_putc('\r');
-  char* uart_reg0 = (char*)0x11002000;
-  volatile UINT32* uart_reg1 = (volatile UINT32*)0x11002014;
-  while ( !((*uart_reg1) & 0x20) ) {}
-  *uart_reg0 = c;
-}
-
-/**
-  Write data from buffer to serial device.
-
-  Writes NumberOfBytes data bytes from Buffer to the serial device.
-  The number of bytes actually written to the serial device is returned.
-  If the return value is less than NumberOfBytes, then the write operation failed.
-  If Buffer is NULL, then ASSERT().
-  If NumberOfBytes is zero, then return 0.
-
-  @param  Buffer           The pointer to the data buffer to be written.
-  @param  NumberOfBytes    The number of bytes to written to the serial device.
-
-  @retval 0                NumberOfBytes is 0.
-  @retval >0               The number of bytes written to the serial device.
-                           If this value is less than NumberOfBytes, then the write operation failed.
-
-**/
 UINTN
 EFIAPI
 SerialPortWrite (
-  IN UINT8     *Buffer,
-  IN UINTN     NumberOfBytes
-)
+  IN UINT8  *Buffer,
+  IN UINTN  NumberOfBytes
+  )
 {
-  for (UINTN i = 0; i < NumberOfBytes; i++) {
-    uart_putc(Buffer[i]);
+  UINTN  Index;
+
+  if (Buffer == NULL) {
+    return 0;
   }
+
+  for (Index = 0; Index < NumberOfBytes; Index++) {
+    if (Buffer[Index] == '\n') {
+      while ((UartRead (UART_LSR) & UART_LSR_THRE) == 0) {}
+      UartWrite (UART_RBR_THR, '\r');
+    }
+    while ((UartRead (UART_LSR) & UART_LSR_THRE) == 0) {}
+    UartWrite (UART_RBR_THR, Buffer[Index]);
+  }
+
   return NumberOfBytes;
 }
 
-
-/**
-  Read data from serial device and save the datas in buffer.
-
-  Reads NumberOfBytes data bytes from a serial device into the buffer
-  specified by Buffer. The number of bytes actually read is returned.
-  If the return value is less than NumberOfBytes, then the rest operation failed.
-  If Buffer is NULL, then ASSERT().
-  If NumberOfBytes is zero, then return 0.
-
-  @param  Buffer           The pointer to the data buffer to store the data read from the serial device.
-  @param  NumberOfBytes    The number of bytes which will be read.
-
-  @retval 0                Read data failed; No data is to be read.
-  @retval >0               The actual number of bytes read from serial device.
-
-**/
 UINTN
 EFIAPI
 SerialPortRead (
-  OUT UINT8     *Buffer,
-  IN  UINTN     NumberOfBytes
-)
+  OUT UINT8  *Buffer,
+  IN  UINTN  NumberOfBytes
+  )
 {
-  return 0;
+  UINTN  Count;
+
+  if (Buffer == NULL) {
+    return 0;
+  }
+
+  for (Count = 0; (Count < NumberOfBytes) && SerialPortPoll (); Count++) {
+    Buffer[Count] = (UINT8)UartRead (UART_RBR_THR);
+  }
+
+  return Count;
 }
 
-/**
-  Polls a serial device to see if there is any data waiting to be read.
-
-  Polls a serial device to see if there is any data waiting to be read.
-  If there is data waiting to be read from the serial device, then TRUE is returned.
-  If there is no data waiting to be read from the serial device, then FALSE is returned.
-
-  @retval TRUE             Data is waiting to be read from the serial device.
-  @retval FALSE            There is no data waiting to be read from the serial device.
-
-**/
 BOOLEAN
 EFIAPI
 SerialPortPoll (
   VOID
   )
 {
-  return FALSE;
+  return (BOOLEAN)((UartRead (UART_LSR) & UART_LSR_DR) != 0);
 }
 
-/**
-  Sets the control bits on a serial device.
-
-  @param Control                Sets the bits of Control that are settable.
-
-  @retval RETURN_SUCCESS        The new control bits were set on the serial device.
-  @retval RETURN_UNSUPPORTED    The serial device does not support this operation.
-  @retval RETURN_DEVICE_ERROR   The serial device is not functioning correctly.
-
-**/
 RETURN_STATUS
 EFIAPI
 SerialPortSetControl (
-  IN UINT32 Control
+  IN UINT32  Control
   )
 {
-  return RETURN_UNSUPPORTED;
+  UINT32  Mcr;
+
+  if ((Control & ~(EFI_SERIAL_REQUEST_TO_SEND | EFI_SERIAL_DATA_TERMINAL_READY)) != 0) {
+    return RETURN_UNSUPPORTED;
+  }
+
+  Mcr = UartRead (UART_MCR);
+  Mcr &= ~(UART_MCR_DTR | UART_MCR_RTS);
+  if ((Control & EFI_SERIAL_DATA_TERMINAL_READY) != 0) {
+    Mcr |= UART_MCR_DTR;
+  }
+  if ((Control & EFI_SERIAL_REQUEST_TO_SEND) != 0) {
+    Mcr |= UART_MCR_RTS;
+  }
+  UartWrite (UART_MCR, Mcr);
+
+  return RETURN_SUCCESS;
 }
 
-/**
-  Retrieve the status of the control bits on a serial device.
-
-  @param Control                A pointer to return the current control signals from the serial device.
-
-  @retval RETURN_SUCCESS        The control bits were read from the serial device.
-  @retval RETURN_UNSUPPORTED    The serial device does not support this operation.
-  @retval RETURN_DEVICE_ERROR   The serial device is not functioning correctly.
-
-**/
 RETURN_STATUS
 EFIAPI
 SerialPortGetControl (
-  OUT UINT32 *Control
+  OUT UINT32  *Control
   )
 {
-  return RETURN_UNSUPPORTED;
+  UINT32  Lsr;
+  UINT32  Mcr;
+  UINT32  Msr;
+
+  if (Control == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
+  *Control = 0;
+  Msr = UartRead (UART_MSR);
+  Mcr = UartRead (UART_MCR);
+  Lsr = UartRead (UART_LSR);
+
+  if ((Msr & UART_MSR_CTS) != 0) { *Control |= EFI_SERIAL_CLEAR_TO_SEND; }
+  if ((Msr & UART_MSR_DSR) != 0) { *Control |= EFI_SERIAL_DATA_SET_READY; }
+  if ((Msr & UART_MSR_RI)  != 0) { *Control |= EFI_SERIAL_RING_INDICATE; }
+  if ((Msr & UART_MSR_DCD) != 0) { *Control |= EFI_SERIAL_CARRIER_DETECT; }
+  if ((Mcr & UART_MCR_DTR) != 0) { *Control |= EFI_SERIAL_DATA_TERMINAL_READY; }
+  if ((Mcr & UART_MCR_RTS) != 0) { *Control |= EFI_SERIAL_REQUEST_TO_SEND; }
+  if ((Lsr & UART_LSR_DR) == 0) { *Control |= EFI_SERIAL_INPUT_BUFFER_EMPTY; }
+  if ((Lsr & (UART_LSR_THRE | UART_LSR_TEMT)) == (UART_LSR_THRE | UART_LSR_TEMT)) {
+    *Control |= EFI_SERIAL_OUTPUT_BUFFER_EMPTY;
+  }
+
+  return RETURN_SUCCESS;
 }
 
-/**
-  Sets the baud rate, receive FIFO depth, transmit/receice time out, parity,
-  data bits, and stop bits on a serial device.
-
-  @param BaudRate           The requested baud rate. A BaudRate value of 0 will use the
-                            device's default interface speed.
-                            On output, the value actually set.
-  @param ReveiveFifoDepth   The requested depth of the FIFO on the receive side of the
-                            serial interface. A ReceiveFifoDepth value of 0 will use
-                            the device's default FIFO depth.
-                            On output, the value actually set.
-  @param Timeout            The requested time out for a single character in microseconds.
-                            This timeout applies to both the transmit and receive side of the
-                            interface. A Timeout value of 0 will use the device's default time
-                            out value.
-                            On output, the value actually set.
-  @param Parity             The type of parity to use on this serial device. A Parity value of
-                            DefaultParity will use the device's default parity value.
-                            On output, the value actually set.
-  @param DataBits           The number of data bits to use on the serial device. A DataBits
-                            vaule of 0 will use the device's default data bit setting.
-                            On output, the value actually set.
-  @param StopBits           The number of stop bits to use on this serial device. A StopBits
-                            value of DefaultStopBits will use the device's default number of
-                            stop bits.
-                            On output, the value actually set.
-
-  @retval RETURN_SUCCESS            The new attributes were set on the serial device.
-  @retval RETURN_UNSUPPORTED        The serial device does not support this operation.
-  @retval RETURN_INVALID_PARAMETER  One or more of the attributes has an unsupported value.
-  @retval RETURN_DEVICE_ERROR       The serial device is not functioning correctly.
-
-**/
 RETURN_STATUS
 EFIAPI
 SerialPortSetAttributes (
@@ -206,6 +326,29 @@ SerialPortSetAttributes (
   IN OUT EFI_STOP_BITS_TYPE *StopBits
   )
 {
-  return RETURN_UNSUPPORTED;
-}
+  RETURN_STATUS  Status;
 
+  if ((BaudRate == NULL) || (ReceiveFifoDepth == NULL) || (Timeout == NULL) ||
+      (Parity == NULL) || (DataBits == NULL) || (StopBits == NULL)) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
+  if (*BaudRate == 0) {
+    *BaudRate = FixedPcdGet64 (PcdUartDefaultBaudRate);
+  }
+  if (*ReceiveFifoDepth == 0) {
+    *ReceiveFifoDepth = 1;
+  }
+  if (*Parity == DefaultParity) {
+    *Parity = NoParity;
+  }
+  if (*DataBits == 0) {
+    *DataBits = 8;
+  }
+  if (*StopBits == DefaultStopBits) {
+    *StopBits = OneStopBit;
+  }
+
+  Status = UartConfigure (*BaudRate, *DataBits, *Parity, *StopBits);
+  return Status;
+}

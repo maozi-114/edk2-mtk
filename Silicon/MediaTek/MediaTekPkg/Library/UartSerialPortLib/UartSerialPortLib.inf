@@ -37,3 +37,6 @@
 [LibraryClasses]
   CacheMaintenanceLib
 
+[FixedPcd]
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate
+
