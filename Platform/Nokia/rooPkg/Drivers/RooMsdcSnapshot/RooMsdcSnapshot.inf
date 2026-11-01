@@ -1,0 +1,23 @@
+[Defines]
+  INF_VERSION = 1.25
+  BASE_NAME = RooMsdcSnapshot
+  FILE_GUID = 713b3a48-e884-46ea-b5ea-4a67c34c6218
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT = RooMsdcSnapshotEntry
+
+[Sources]
+  RooMsdcSnapshot.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  IoLib
+  TimerLib
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Depex]
+  TRUE

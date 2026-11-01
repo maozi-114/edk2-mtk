@@ -115,14 +115,15 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
   INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 
-  INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+  INF rooPkg/Drivers/RooGic/ArmGicDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
   INF MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
 
-  INF MediaTekPkg/Drivers/MtkGpioDxe/MtkGpioDxe.inf
+  INF rooPkg/Drivers/RooGpio/RooGpio.inf
+  INF rooPkg/Drivers/RooMsdcSnapshot/RooMsdcSnapshot.inf
   INF MediaTekPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
   INF MediaTekPkg/Drivers/KeypadDxe/KeypadDxe.inf
   INF MediaTekPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf

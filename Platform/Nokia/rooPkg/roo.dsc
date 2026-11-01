@@ -17,8 +17,8 @@
 !if $(TARGET) == DEBUG
   # Full standard DEBUG() stream on BaseDebugLibSerialPort/UART0.
   gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x2F
-  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x807B55FF
-  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x807B55FF
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x807B55CF
+  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x807B55CF
 !endif
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x40000000
   gArmTokenSpaceGuid.PcdSystemMemorySize|0xc0000000
@@ -30,17 +30,29 @@
   gMediaTekTokenSpaceGuid.PcdUefiMemPoolSize|0x07030000
 
   # Simple Framebuffer
-  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferWidth|736
-  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferHeight|1440
-  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferAddress|0x7bee0000
+  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferWidth|480
+  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferHeight|640
+  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferAddress|0x7efe0000
+  gMediaTekTokenSpaceGuid.PcdMipiFrameBufferLayers|0
 
 [LibraryClasses]
   PlatformMemoryMapLib|rooPkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.inf
 
 !include Silicon/MediaTek/MT6765Pkg/MT6765.dsc
 
+[LibraryClasses.common]
+  KeypadDeviceImplLib|rooPkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
+
 # Keep RELEASE image placement while enabling the complete serial DEBUG() stream.
 [PcdsFixedAtBuild.common]
   gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x2F
-  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x807B55FF
-  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x807B55FF
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x807B55CF
+  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x807B55CF
+
+[PcdsFixedAtBuild.common]
+  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|3
+
+[Components]
+  rooPkg/Drivers/RooGic/ArmGicDxe.inf
+  rooPkg/Drivers/RooGpio/RooGpio.inf
+  rooPkg/Drivers/RooMsdcSnapshot/RooMsdcSnapshot.inf

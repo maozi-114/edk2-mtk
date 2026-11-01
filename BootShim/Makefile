@@ -4,7 +4,23 @@ CROSS_COMPILE     = $(TARGET)-
 CC                = $(CROSS_COMPILE)gcc
 OBJCOPY           = $(CROSS_COMPILE)objcopy
 
-all: BootShim.elf BootShim.bin 
+ifneq ($(MAKECMDGOALS),clean)
+ifndef UEFI_BASE
+$(error UEFI_BASE must be set)
+endif
+ifndef UEFI_SIZE
+$(error UEFI_SIZE must be set)
+endif
+ifeq ($(UEFI_BASE),0)
+$(error UEFI_BASE must not be zero)
+endif
+ifeq ($(UEFI_SIZE),0)
+$(error UEFI_SIZE must not be zero)
+endif
+endif
+
+.PHONY: all clean
+all: BootShim.elf BootShim.bin
 
 BootShim.bin: BootShim.elf
 	$(OBJCOPY) -O binary $< $@

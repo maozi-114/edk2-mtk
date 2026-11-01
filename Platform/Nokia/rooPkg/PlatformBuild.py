@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 import subprocess
+import struct
 import gzip
 import shutil
 import logging
@@ -182,12 +183,28 @@ class PlatformBuilder (UefiBuilder, BuildSettingsManager):
         fd_size = self.env.GetValue("BLD_*_FD_SIZE")
 
         try:
+            # UEFI_BASE and UEFI_SIZE are assembler inputs, not Makefile file
+            # dependencies.  Always remove the previous object so a Shim built
+            # with unset values can never be reused for this platform.
+            subprocess.run(["make", "-C", "BootShim", "clean"], check=True)
             subprocess.run(
                 ["make", "-C", "BootShim", f"UEFI_BASE={fd_base}", f"UEFI_SIZE={fd_size}"],
                 check=True
             )
-        except subprocess.CalledProcessError:
-            logging.critical(f"BootShim build failed!")
+            with open("BootShim/BootShim.bin", "rb") as shim:
+                shim_data = shim.read()
+            expected_base = int(fd_base, 0)
+            expected_size = int(fd_size, 0)
+            if len(shim_data) != 0x90:
+                raise ValueError(f"unexpected BootShim size {len(shim_data):#x}")
+            actual_base, actual_size = struct.unpack_from("<QQ", shim_data, 0x48)
+            if (actual_base, actual_size) != (expected_base, expected_size):
+                raise ValueError(
+                    f"BootShim literals are {actual_base:#x}/{actual_size:#x}, "
+                    f"expected {expected_base:#x}/{expected_size:#x}"
+                )
+        except (subprocess.CalledProcessError, OSError, ValueError) as error:
+            logging.critical(f"BootShim build/validation failed: {error}")
             return 1
 
         return 0
